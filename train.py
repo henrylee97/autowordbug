@@ -73,6 +73,7 @@ def main(argv=None):
   parser.add_argument('--batch-size', type=int, default=128, metavar='<int>', help='Batch size')
   parser.add_argument('-lr', '--learning-rate', type=float, default=0.0005, metavar='<float>', help='Learning rate')
   parser.add_argument('-p', '--save-path', type=str, default='model.pt', metavar='<.pt>', help='Path for trained model')
+  parser.add_argument('--best', action='store_true', help='Save the model with the best accuracy, validation data must provided')
 
   args = parser.parse_args(argv)
 
@@ -87,13 +88,19 @@ def main(argv=None):
   # Create optimizer.
   optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
   
-  # Load data.
+  # Load training data.
   train_data = Dataset(args.data, args.dictionary_size, args.seq_len)
   train_loader = DataLoader(train_data, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
 
+  # Load validation data.
   if args.validation:
     val_data = Dataset(args.validation, args.dictionary_size, args.seq_len, train_data.word_index)
     val_loader = DataLoader(val_data, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False)
+
+  # Best accuracy model.
+  if args.best and args.validation:
+    best_accuracy = 0.
+    best_model = model_cls(*model.get_args())
 
   # Start training.
   for epoch in range(args.epochs):
@@ -105,13 +112,19 @@ def main(argv=None):
     # Validation.
     if args.validation:
       accuracy = validate_accuracy(model, val_loader, device)
+      # Track the model with the best accuracy.
+      if args.best and accuracy > best_accuracy:
+        best_model.load_state_dict(model.state_dict())
 
     print(f'\rEpoch {epoch + 1} loss: {loss:6.4f}', f'  accuracy: {accuracy:6.4f}' if args.validation else '')
 
   # Save model.
   save_path = Path(args.save_path)
   save_path.parent.mkdir(parents=True, exist_ok=True)
-  model.save(save_path, train_data.word_index)
+  save_model = model
+  if args.best and args.validation:
+    save_model = best_model
+  save_model.save(save_path, train_data.word_index)
 
 if __name__ == '__main__':
   main()
