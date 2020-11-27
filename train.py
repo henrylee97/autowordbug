@@ -48,7 +48,7 @@ def validate_accuracy(model, data_loader, device):
     pred = outputs.data.max(1, keepdim=True)[1]
 
     correct += pred.eq(targets.data.view_as(pred)).cpu().sum().item()
-  return correct / len(data_loader)
+  return correct / len(data_loader.dataset)
 
 def main(argv=None):
 
