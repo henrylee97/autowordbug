@@ -37,6 +37,19 @@ def train_epoch(model, data_loader, optimizer, device):
 
   return sum(losses) / len(losses) if len(losses) > 0 else 0
 
+def validate_accuracy(model, data_loader, device):
+  correct = 0
+  model.eval()
+  for inputs, targets in data_loader:
+    inputs = inputs.long().to(device)
+    targets = targets.to(device)
+
+    outputs = model(inputs)
+    pred = outputs.data.max(1, keepdim=True)[1]
+
+    correct += pred.eq(targets.data.view_as(pred)).cpu().sum().item()
+  return correct / len(data_loader)
+
 def main(argv=None):
 
   if not argv:
@@ -45,6 +58,7 @@ def main(argv=None):
   parser = argparse.ArgumentParser(description='Training script.')
   # Training data.
   parser.add_argument('-d', '--data', type=str, metavar='<.csv>', required=True, help='Training data')
+  parser.add_argument('-v', '--validation', type=str, metavar='<.csv>', default=None, help='Validation data')
   parser.add_argument('-c', '--num-classes', type=int, metavar='<int>', required=True, help='Number of classes')
   parser.add_argument('--dictionary-size', type=int, default=20000, metavar='<int>', help='Number of words')
   parser.add_argument('--seq-len', type=int, default=500, metavar='<int>', help='Length of sequences to pad')
@@ -74,19 +88,30 @@ def main(argv=None):
   optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
   
   # Load data.
-  dataset = Dataset(args.data, args.dictionary_size, args.seq_len)
-  data_loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
+  train_data = Dataset(args.data, args.dictionary_size, args.seq_len)
+  train_loader = DataLoader(train_data, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
+
+  if args.validation:
+    val_data = Dataset(args.validation, args.dictionary_size, args.seq_len, train_data.word_index)
+    val_loader = DataLoader(val_data, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False)
 
   # Start training.
   for epoch in range(args.epochs):
     print(f'Start epoch {epoch + 1}', end='', flush=True)
-    loss = train_epoch(model, data_loader, optimizer, device)
-    print(f'\rEpoch {epoch + 1} loss: {loss:6.4f}')
+    
+    # Training.
+    loss = train_epoch(model, train_loader, optimizer, device)
+
+    # Validation.
+    if args.validation:
+      accuracy = validate_accuracy(model, val_loader, device)
+
+    print(f'\rEpoch {epoch + 1} loss: {loss:6.4f}', f'  accuracy: {accuracy:6.4f}' if args.validation else '')
 
   # Save model.
   save_path = Path(args.save_path)
   save_path.parent.mkdir(parents=True, exist_ok=True)
-  model.save(save_path, dataset.word_index)
+  model.save(save_path, train_data.word_index)
 
 if __name__ == '__main__':
   main()
