@@ -55,7 +55,7 @@ def main(argv=None):
   if not argv:
     argv = sys.argv[1:]
   
-  parser = argparse.ArgumentParser(description='Training script.')
+  parser = argparse.ArgumentParser(description='Classifier training script.')
   # Training data.
   parser.add_argument('-d', '--data', type=str, metavar='<.csv>', required=True, help='Training data')
   parser.add_argument('-v', '--validation', type=str, metavar='<.csv>', default=None, help='Validation data')
