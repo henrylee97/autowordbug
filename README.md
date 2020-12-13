@@ -1,6 +1,25 @@
 # AutoWordBug
 Deep neural network based sentence classification attack.
 
+## Docker
+We offer a [docker](https://www.docker.com) image with all dependencies are installed.
+If you do not prefer using docker please skip this section and see the instructions from the next section (Requirements).
+You can build an image, called `autowordbug`, with the following command.
+```bash
+$ docker build . --tag autowordbug
+```
+Then, you can create a docker container with the created image with the following command.
+```bash
+$ docker run --rm -it autowordbug
+```
+Inside the container, we offer 3 system-wide programs, which are `prepare`, `train`, and `evaluate`.
+You can see how to use them by passing `--help` argument as follows:
+```bash
+$ prepare --help
+$ train --help
+$ evaluate --help
+```
+
 ## Requirments
 Following libraries are required. Install them using your `pip`.
 * numpy
@@ -13,7 +32,7 @@ Please, see the usage message for more details which not explained in this docum
 ## Training
 You can train `AutoWordBug` with the following steps.
 First, you need to prepare the datasets.
-The following command will create `train.pkl`, `val.pkl`, and `test.pkl` at `experiments` folder
+The following command will create `train.pkl`, `val.pkl`, and `test.pkl` at `experiments` folder.
 ```bash
 $ python prepare.py
 ```
