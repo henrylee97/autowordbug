@@ -5,7 +5,7 @@ import sys
 from autowordbug.dataloader import create_dataset
 
 def main(argv):
-  parser = argparse.ArgumentParser('Data preparation script')
+  parser = argparse.ArgumentParser(description='Data preparation script')
   parser.add_argument('-d', '--data', metavar='<dir>', type=Path, default=Path('data/ag_news/WordRNN'), help='Folder that contains csv files (default: data/ag_news/WordRNN)')
   parser.add_argument('--train', metavar='<float>', type=float, default=0.8, help='Portion of train set (default: 0.8)')
   parser.add_argument('--val', metavar='<float>', type=float, default=0.1, help='Portion of validation set (default: 0.1)')

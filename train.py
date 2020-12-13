@@ -61,7 +61,7 @@ def validation(model, dataloader, index_char, print_every=0):
   return total_loss / len(dataloader), total_bleu / len(dataloader)
 
 def main(argv):
-  parser = argparse.ArgumentParser('AutoWordBug training script')
+  parser = argparse.ArgumentParser(description='AutoWordBug training script')
   parser.add_argument('-t', '--train', required=True, type=Path, metavar='<.pkl>', help='Training set')
   parser.add_argument('-v', '--val', type=Path, metavar='<.pkl>', default=None, help='Validation set')
 

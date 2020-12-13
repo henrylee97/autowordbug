@@ -24,7 +24,7 @@ def word_sequence_to_tensor(seq, word_index, n_words=20000, start_index=1, oov_i
   return torch.tensor(seq).long()
 
 def main(argv):
-  parser = argparse.ArgumentParser('AutoWordBug evalutaion script')
+  parser = argparse.ArgumentParser(description='AutoWordBug evalutaion script')
   parser.add_argument('-t', '--test', required=True, type=Path, metavar='<.pkl>', help='Test set')
   parser.add_argument('-m', '--model', required=True, type=Path, metavar='<.pt>', help='Trained AutoWordBug')
   parser.add_argument('-b', '--base', type=str, default='WordRNN', metavar='<class>', help='Type of base model, see autowordbug/base_models (default: WordRNN)')
