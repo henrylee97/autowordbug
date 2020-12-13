@@ -3,7 +3,7 @@ Deep neural network based sentence classification attack.
 
 ## Docker
 We offer a [docker](https://www.docker.com) image with all dependencies are installed.
-If you do not prefer using docker please skip this section and see the instructions from the next section (Requirements).
+If you do not prefer using docker please skip this section and see the instructions from the next section ([Requirements](#Requirements)).
 You can build an image, called `autowordbug`, with the following command.
 ```bash
 $ docker build . --tag autowordbug
@@ -19,8 +19,9 @@ $ prepare --help
 $ train --help
 $ evaluate --help
 ```
+You also can get some hints at [Training](#Training) and [Evaluation](#Evaluatio) sections in this document.
 
-## Requirments
+## Requirements
 Following libraries are required. Install them using your `pip`.
 * numpy
 * [pytorch](https://pytorch.org)
