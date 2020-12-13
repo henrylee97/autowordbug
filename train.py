@@ -1,188 +1,139 @@
-import dill
-import numpy as np
-import torch
-import time, datetime
-import pickle
-
-from torch.optim import Adam, lr_scheduler
+from datetime import datetime
+from pathlib import Path
+from torch.optim import Adam
 from torch.utils.data import DataLoader
-from dataloader import create_dataset, Mycollator
-from main_model import Main_model
-from config import Configuration
-from scoring import bleu_score
+import argparse
+import sys
+import torch
 import torch.nn as nn
 
-cfg = Configuration()
+from autowordbug.dataloader import AdversarialDataset
+from autowordbug.dataloader import CollateFN
+from autowordbug.model import AutoWordBug
+from autowordbug.score import bleu
+from autowordbug.postprocess import make_sentences
+from autowordbug.preprocess import create_index_char
 
+def train_epoch(model, optimizer, dataloader, teaching_force, print_every=0):
+  model.train()
 
-# 시간 측정 함수
-def format_time(elapsed):
-    # Round to the nearest second.
-    elapsed_rounded = int(round(elapsed))
-    # Format as hh:mm:ss
-    return str(datetime.timedelta(seconds=elapsed_rounded))
+  total_loss = 0
 
+  for batch_idx, (inp, tar) in enumerate(dataloader):
+
+    # Forward
+    loss, _ = model(inp, tar=tar, teaching_force=teaching_force)
+    
+    # Back prop
+    optimizer.zero_grad()
+    loss.backward()
+    nn.utils.clip_grad_norm_(model.parameters(), 1)
+    optimizer.step()
+    total_loss += loss.item()
+
+    if print_every > 0 and batch_idx % print_every == 0:
+      print(f'  Batch {batch_idx + 1:>5} of {len(dataloader):>5}.\tLoss: {loss.item():>6.4f}.')
+  return total_loss / len(dataloader)
+
+def validation(model, dataloader, index_char, print_every=0):
+  model.eval()
+
+  total_loss = 0
+  total_bleu = 0
+
+  for batch_idx, (inp, tar) in enumerate(dataloader):
+
+    # Get validation loss
+    with torch.no_grad():
+      loss, output = model(inp, tar=tar)
+    total_loss += loss.item()
+
+    # Get BLEU score
+    output = output.transpose(0, 1)
+    output = make_sentences(output, index_char)
+    tar = tar.transpose(0, 1)
+    tar = make_sentences(tar, index_char)
+    bleu_score = bleu(output, tar)
+    total_bleu += bleu_score
+
+    if print_every > 0 and batch_idx % print_every == 0:
+      print(f'  Batch {batch_idx + 1:>5} of {len(dataloader):>5}.\tLoss: {loss.item():>6.4f}.\tBLEU: {bleu_score}')
+  return total_loss / len(dataloader), total_bleu / len(dataloader)
+
+def main(argv):
+  parser = argparse.ArgumentParser('AutoWordBug training script')
+  parser.add_argument('-t', '--train', required=True, type=Path, metavar='<.pkl>', help='Training set')
+  parser.add_argument('-v', '--val', type=Path, metavar='<.pkl>', default=None, help='Validation set')
+
+  parser.add_argument('--cuda', action='store_true', help='Use GPU if possible')
+  parser.add_argument('--embed-dim', metavar='<int>', type=int, default=300, help='Embedding dimension (default: 300)')
+  parser.add_argument('--hidden', metavar='<int>', type=int, default=500, help='Hidden size (default: 500)')
+  parser.add_argument('--num-layers', metavar='<int>', type=int, default=4, help='Number of layers (default: 4)')
+  parser.add_argument('--teaching-force', metavar='<float>', type=float, default=0.5, help='Portion of teaching forch (default: 0.5)')
+  parser.add_argument('--dropout', metavar='<float>', type=float, default=0.1, help='Dropout portion (default: 0.1)')
+
+  parser.add_argument('--batch-size', metavar='<int>', type=int, default=20, help='Batch size (default: 20)')
+  parser.add_argument('--epoch', metavar='<int>', type=int, default=70, help='Epochs (default: 70)')
+  parser.add_argument('--lr', metavar='<float>', type=float, default=3e-4, help='Learning rate (default: 3e-4)')
+  parser.add_argument('--print-every', metavar='<int>', type=int, default=10, help='Print log every n batchs (defalut: 10)')
+
+  parser.add_argument('--to', metavar='<dir>', type=Path, default=Path('experiments'), help='Directory to store trained model (default: experiments)')
+
+  args = parser.parse_args(argv)
+
+  # Device setting
+  device = torch.device('cuda' if args.cuda and torch.cuda.is_available() else 'cpu')
+  
+  # Load dataset
+  collate_fn = CollateFN(device)
+  train_set = AdversarialDataset.load(args.train)
+  train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, drop_last=False)
+  print(f'len(train_set): {len(train_set)}')
+  if args.val:
+    val_set = AdversarialDataset.load(args.val)
+    index_char = create_index_char(val_set.char_index)
+    val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, drop_last=True)
+    print(f'len(val_set): {len(val_set)}')
+
+  # Create a model
+  model = AutoWordBug(len(train_set.char_index), args.embed_dim, args.hidden, args.num_layers, args.dropout)
+  model.to(device)
+  
+  # Create an optimizer
+  optimizer = Adam(model.parameters(), lr=args.lr)
+
+  # max bleu score
+  max_bleu = 0
+
+  for i in range(args.epoch):
+    print()
+    print(f'========== Epoch {i + 1} / {args.epoch} ==========')
+    
+    # Training
+    print('Training starts.')
+    training_start = datetime.now()
+    loss = train_epoch(model, optimizer, train_loader, args.teaching_force, args.print_every)
+    print(f'Time elapsed: {datetime.now() - training_start}')
+    print(f'Average training loss: {loss:6.4f}')
+
+    # Validation
+    if args.val:
+      print()
+      print('Validation starts.')
+      val_start = datetime.now()
+      loss, bleu_score = validation(model, val_loader, index_char, args.print_every)
+      print(f'Time elapsed: {datetime.now() - val_start}')
+      print(f'Average validation loss: {loss:6.4f}')
+      print(f'Average BLEU score: {bleu_score:6.4f}')
+
+      # If bleu score get better
+      if max_bleu < bleu_score:
+        max_bleu = bleu_score
+        model.save(args.to / 'AutoWordBug_best.pt')
+        print(f'Best model saved at {args.to / "AutoWordBug_best.pt"}')
+    
+    # Save model
+    model.save(args.to / f'AutoWordBug_epoch_{i + 1}.pt')
 
 if __name__ == "__main__":
-    print("Adversarial sample training")
-    print("==============configuration==============")
-    cfg.configprint()
-    print("★★★★RNN★★★★")
-
-    with open("RNN_chardict.dill", "rb") as f:
-        chardict, chardict_inv = dill.load(f)
-    with open("./exp_settings/" + cfg.mode + "/RNN_train_sentences.dill", "rb") as f:
-        train_sent = dill.load(f)
-    with open("./exp_settings/" + cfg.mode + "/RNN_val_sentences.dill", "rb") as f:
-        val_sent = dill.load(f)
-
-    chars_len = len(chardict)
-    train_size = len(train_sent.orig_sent)
-    val_size = len(val_sent.orig_sent)
-    print("train_size:", train_size)
-    print("val_size:", val_size)
-
-    # eval_size = len(eval_sent.orig_sent)
-
-    device = torch.device(cfg.device)
-
-    train_dataset = create_dataset("train")
-    val_dataset = create_dataset("val")
-    collate_fn = Mycollator()
-    train_dataloader = DataLoader(train_dataset, batch_size=cfg.lc_batch_size,
-                                  shuffle=True, collate_fn=collate_fn,
-                                  drop_last=False)
-    val_dataloader = DataLoader(val_dataset, batch_size=cfg.lc_batch_size,
-                                shuffle=False, collate_fn=collate_fn,
-                                drop_last=True)
-
-    model = Main_model(chars_len)
-    optimizer = Adam(model.parameters(), lr=cfg.lc_learning_rate)
-    criterion = nn.CrossEntropyLoss()
-    max_bleu = 0
-
-    train_loss = []
-    val_loss = []
-    val_bleu = []
-    for epoch in range(cfg.lc_epoch):
-        # ========================================
-        #               Training
-        # ========================================
-        print("")
-        print('======== Epoch {:} / {:} ========'.format(epoch + 1, cfg.lc_epoch))
-        print('Training...')
-        t0 = time.time()
-        # 시간 측정을 위한 현재시간 저장
-        total_loss = 0
-        batch_loss = 0
-        imsicnt = 0
-        model.train()
-        for batch_idx, batch in enumerate(train_dataloader):
-            print("Batch:", batch[0].shape, batch[1].shape)
-            print(len(train_dataloader))
-            quit()
-            optimizer.zero_grad()
-            enc_hidden, enc_cell = model.encoder.init_hidden()
-            dec_hidden, dec_cell = model.decoder.init_hidden()
-            loss, outputs = model(batch, "train")
-            # output = [batch size, maxlen]
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
-            optimizer.step()
-            total_loss += loss.item()
-
-            if batch_idx % 10 == 0 and not batch_idx == 0:
-                elapsed = format_time(time.time() - t0)
-                print('  Batch {0:>5,}  of  {1:>5,}.    Elapsed: {2:}.    Loss: {3:>5.5f}.   '
-                      .format(batch_idx, len(train_dataloader), elapsed, loss))
-        print("  Training epoch {0:} took: {1:}".format(epoch + 1, format_time(time.time() - t0)))
-        print("  Average training loss: {0:.4f}".format(total_loss / len(train_dataloader)))
-        train_loss.append(total_loss / len(train_dataloader))
-        # ========================================
-        #               Validation
-        # ========================================
-
-        print('Validation...')
-        t0 = time.time()
-        total_loss = 0
-        model.eval()
-        print_pred = False
-        total_bleu = 0
-        for batch_idx, batch in enumerate(val_dataloader):
-            prediction = []
-            target = []
-            with torch.no_grad():
-                loss, outputs = model(batch, "val")
-                total_loss += loss.item()
-            # pred와 target 출력해보기
-            if not print_pred:
-                for i in range(5):
-                    print("prediction:", end="")
-                    for j in range(len(outputs[i])):
-                        print(chardict_inv[outputs[i][j].item()], end="")
-                        if chardict_inv[outputs[i][j].item()] == '<EOS>':
-                            break
-                    print("\ntarget:", end="")
-                    for j in range(len(outputs[i])):
-                        print(chardict_inv[batch[1][j][i].item()], end="")
-                        if chardict_inv[batch[1][j][i].item()] == '<EOS>':
-                            break
-                    print("\n------------------------------------")
-                print_pred = True
-            # bleu score 계산을 위한 문장 저장
-
-            prediction.append('')
-            target.append('')
-            for j in range(len(outputs[0])):
-                if chardict_inv[outputs[0][j].item()] == '<EOS>':
-                    break
-                if chardict_inv[outputs[0][j].item()] == '<SOS>':
-                    continue
-                prediction[-1] += chardict_inv[outputs[0][j].item()]
-
-            for j in range(len(outputs[1])):
-                if chardict_inv[batch[1][j][1].item()] == '<EOS>':
-                    break
-                if chardict_inv[batch[1][j][1].item()] == '<SOS>':
-                    continue
-                target[-1] += chardict_inv[batch[1][j][1].item()]
-
-            bleu = bleu_score(prediction, target)
-            total_bleu += bleu
-
-            if batch_idx % 10 == 0 and not batch_idx == 0:
-                elapsed = format_time(time.time() - t0)
-                print('  Batch {0:>5,}  of  {1:>5,}.    Elapsed: {2:}.    Loss: {3:>5.5f}.   Bleu: {4:>5.5f}.'
-                      .format(batch_idx, len(val_dataloader), elapsed, loss, bleu))
-
-        print("  Validation took: {:}".format(format_time(time.time() - t0)))
-        print("  Average Validation loss: {0:.4f}".format(total_loss / len(val_dataloader)))
-        print("  Average Bleu score: {0:.4f}".format(total_bleu / len(val_dataloader)))
-        val_loss.append(total_loss / len(val_dataloader))
-        val_bleu.append(total_bleu / len(val_dataloader))
-
-        if max_bleu < total_bleu:
-            max_bleu = total_bleu
-            print("highest bleu score. model save.")
-            torch.save(model, cfg.save_path + '_RNN' + cfg.mode + '_model_epoch' + str(epoch+1) + '.pt')
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': total_loss
-            }, cfg.save_path + cfg.mode + '_RNN' + '_model_state_dict' + str(epoch+1) + '.tar')
-
-    print("Training finished.")
-    print("==============configuration==============")
-    cfg.configprint()
-    print("★★★★RNN★★★★")
-    print("train_size:", train_size)
-    print("val_size:", val_size)
-    with open('RNN_loss_and_bleu.pkl', 'wb+') as f:
-        pickle.dump([train_loss, val_loss, val_bleu], f)
-    print("[Loss and Bleu]")
-    for i in range(len(train_loss)):
-        print("Epoch {0} : Training loss : {1:>5.5f}   Validation loss : {2:>5.5f}   Bleu score : {3:>5.5f}"
-              .format(i + 1, train_loss[i], val_loss[i], val_bleu[i]))
-
-
+  main(sys.argv[1:])
