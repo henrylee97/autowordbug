@@ -1,4 +1,4 @@
-# Attack methods
+## Attack methods
 
 | File             | Description |
 |:-----------------|:------------|
@@ -7,7 +7,7 @@
 | `substitute.csv` | `substitute` strategy (`flip` in their implementation) in paper [1]. Data are generated with testset. |
 | `swap.csv`       | `swap` strategy in paper [1]. Data are generated with testset. |
 
-# Data lengths
+## Data lengths
 | File             | Length |
 |:-----------------|-------:|
 | `insert.csv`     | 4259   |
@@ -15,5 +15,5 @@
 | `substitute.csv` | 4237   |
 | `swap.csv`       | 3161   |
 
-# Reference
+## Reference
 [1]: Black-box Generation of Adversarial Text Sequences to Evade Deep Learning Classifiers [paper](https://arxiv.org/abs/1801.04354) [github](https://github.com/QData/deepWordBug)
