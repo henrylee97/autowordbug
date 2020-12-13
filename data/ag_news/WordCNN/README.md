@@ -1,5 +1,7 @@
-## Attack methods
+## Columns
+Each csv has 4 columns, which are original input, prediction of original input, perturbed input, and prediction of perturbed input.
 
+## Attack methods
 | File             | Description |
 |:-----------------|:------------|
 | `insert.csv`     | `insert` strategy in paper [1]. Data are generated with testset. |
